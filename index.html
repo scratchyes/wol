@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POST请求发送器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            max-width: 600px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: bold;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .response {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            display: none;
+        }
+        
+        .response.show {
+            display: block;
+        }
+        
+        .response h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .response pre {
+            background: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            color: #333;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #667eea;
+            display: none;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        #keyStatus {
+            padding: 8px;
+            background: #d4edda;
+            border-radius: 5px;
+            border: 1px solid #c3e6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WOL 远程唤醒工具</h1>
+        
+        <div class="input-group">
+            <label for="key">授权密钥 (Key)：</label>
+            <input type="password" id="key" placeholder="输入授权密钥" autocomplete="current-password">
+            <div style="margin-top: 8px;">
+                <label style="display: inline-flex; align-items: center; font-weight: normal; cursor: pointer;">
+                    <input type="checkbox" id="rememberKey" style="width: auto; margin-right: 5px;">
+                    <span>记住密钥7天</span>
+                </label>
+            </div>
+            <div id="keyStatus" style="display: none; margin-top: 8px; font-size: 14px;"></div>
+        </div>
+        
+        <div class="input-group">
+            <label for="mac">MAC地址：</label>
+            <input type="text" id="mac" placeholder="例如：11:11:11:11:11:11" value="11:11:11:11:11:11">
+        </div>
+        
+
+        
+        <button onclick="sendWolRequest()">发送唤醒请求</button>
+        
+        <div class="loading" id="loading">
+            <p>正在发送唤醒请求...</p>
+        </div>
+        
+        <div class="response" id="response">
+            <h3>响应结果：</h3>
+            <pre id="responseContent"></pre>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script>
+        // 固定的WOL服务器地址
+        const WOL_SERVER = 'http://127.0.0.1:9090';
+        
+        // 页面加载时，从localStorage恢复保存的值
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedMac = localStorage.getItem('wol_mac');
+            const savedKey = localStorage.getItem('wol_key');
+            const keyExpiry = localStorage.getItem('wol_key_expiry');
+            
+            if (savedMac) {
+                document.getElementById('mac').value = savedMac;
+            }
+            
+            // 检查密钥是否在7天有效期内
+            if (savedKey && keyExpiry) {
+                const now = Date.now();
+                if (now < parseInt(keyExpiry)) {
+                    document.getElementById('key').value = savedKey;
+                    document.getElementById('rememberKey').checked = true;
+                    updateKeyStatus(true, keyExpiry);
+                } else {
+                    // 过期了，清除保存的密钥
+                    localStorage.removeItem('wol_key');
+                    localStorage.removeItem('wol_key_expiry');
+                    updateKeyStatus(false);
+                }
+            }
+        });
+        
+        // 更新密钥状态显示
+        function updateKeyStatus(isValid, expiry) {
+            const statusDiv = document.getElementById('keyStatus');
+            if (isValid && expiry) {
+                const expiryDate = new Date(parseInt(expiry));
+                const daysLeft = Math.ceil((expiryDate - Date.now()) / (1000 * 60 * 60 * 24));
+                statusDiv.innerHTML = `✓ 密钥已保存，还有 ${daysLeft} 天有效期`;
+                statusDiv.style.display = 'block';
+                statusDiv.style.color = '#28a745';
+            } else {
+                statusDiv.style.display = 'none';
+            }
+        }
+        
+        // 保存设置到localStorage
+        function saveSettings() {
+            const key = document.getElementById('key').value;
+            const mac = document.getElementById('mac').value;
+            const rememberKey = document.getElementById('rememberKey').checked;
+            
+            localStorage.setItem('wol_mac', mac);
+            
+            if (rememberKey && key) {
+                // 保存密钥，设置7天后过期
+                const expiry = Date.now() + (7 * 24 * 60 * 60 * 1000);
+                localStorage.setItem('wol_key', key);
+                localStorage.setItem('wol_key_expiry', expiry.toString());
+                updateKeyStatus(true, expiry);
+            } else {
+                // 不记住密钥，清除保存的数据
+                localStorage.removeItem('wol_key');
+                localStorage.removeItem('wol_key_expiry');
+                updateKeyStatus(false);
+            }
+        }
+        
+        async function sendWolRequest() {
+            const key = document.getElementById('key').value;
+            const mac = document.getElementById('mac').value;
+            const loading = document.getElementById('loading');
+            const response = document.getElementById('response');
+            const responseContent = document.getElementById('responseContent');
+            
+            if (!mac) {
+                alert('请输入MAC地址');
+                return;
+            }
+            
+            loading.classList.add('show');
+            response.classList.remove('show');
+            
+            try {
+                // 保存设置
+                saveSettings();
+                
+                // 将MAC地址转换为WOL API要求的格式（使用-分隔符）
+                const macFormatted = mac.replace(/:/g, '-').toUpperCase();
+                
+                // 使用SHA-256哈希key，原始key不会传输
+                const hashedKey = key ? CryptoJS.SHA256(key).toString() : '';
+                
+                const res = await fetch('api.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        key: hashedKey,
+                        mac: macFormatted
+                    })
+                });
+                
+                const data = await res.json();
+                
+                
+                responseContent.textContent = JSON.stringify(data, null, 2);
+                response.classList.add('show');
+            } catch (error) {
+                responseContent.textContent = '错误: ' + error.message;
+                response.classList.add('show');
+            } finally {
+                loading.classList.remove('show');
+            }
+        }
+    </script>
+</body>
+</html>

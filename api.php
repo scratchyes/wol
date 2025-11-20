@@ -25,7 +25,7 @@ $input = file_get_contents('php://input');
 $data = json_decode($input, true);
 
 // 固定的WOL服务器地址
-define('WOL_SERVER', 'http://127.0.0.1/1.php');
+define('WOL_SERVER', 'https://woltest-e8e7fmexe6hqfnc6.japaneast-01.azurewebsites.net/1.php');
 
 // 验证必需参数
 if (!isset($data['mac']) || empty($data['mac'])) {
